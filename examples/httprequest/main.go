@@ -9,33 +9,35 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ragwolf/broadcaster"
+	"github.com/ragwolf/tasksync"
 )
 
 var port = ":8080"
 var timeout = time.Duration(500) * time.Millisecond
 
 func main() {
-	var broadcasters sync.Map
+	// GroupedTaskSync is used so all requests for the same ID use the same task
+	gts := tasksync.NewGroupedTaskSync[string, string]()
 
 	http.HandleFunc("GET /example/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-
-		bAny, _ := broadcasters.LoadOrStore(id, broadcaster.New[string]())
-		b := bAny.(*broadcaster.TaskBroadcaster[string])
+		log.Printf("Received request for ID: %s", id)
 
 		ctx, cancelFunc := context.WithTimeout(context.Background(), timeout)
 		defer cancelFunc()
 
-		output, err := b.Listen(ctx, func(ctx context.Context) (string, error) {
+		output, err := gts.Run(ctx, id, func(ctx context.Context) (string, error) {
+			log.Printf("Starting task for ID: %s", id)
 			return calculateSomething(ctx, id)
 		})
 		if err != nil {
+			log.Printf("Error processing request for ID %s: %v", id, err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
 			return
 		}
 
+		log.Printf("Task completed for ID: %s", id)
 		w.Write([]byte(output))
 	})
 
